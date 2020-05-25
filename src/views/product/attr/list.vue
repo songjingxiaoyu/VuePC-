@@ -1,18 +1,16 @@
 <template>
   <div>
     <el-card>
-      <CategorySelector @categoryChange="handleCategoryChange" ref="cs"/>
+      <CategorySelector ref="cs" @categoryChange="handleCategoryChange"/>
     </el-card>
-    <el-card style="margin-top: 20px">
+    <el-card>
       <div v-show="isShowList">
-        <el-button type="primary" icon="el-icon-plus" style="margin-bottom:20px"
-        @click="showAdd"
-        :disabled="!category3Id===null"
-        >添加属性</el-button>
+        <el-button type="primary" icon="el-icon-plus" style="margin-bottom: 20px"
+        @click="showAdd" :disabled="!category3Id">添加属性</el-button>
         <el-table border :data="attrs">
           <el-table-column label="序号" type="index" width="80" align="center"></el-table-column>
           <el-table-column label="属性名称" width="150" prop="attrName"></el-table-column>
-          <el-table-column label="属性值列表" >
+          <el-table-column label="属性值列表">
             <template slot-scope="{row}">
               <el-tag style="margin: 2px" type="info" v-for="value in row.attrValueList" :key="value.id">{{value.valueName}}</el-tag>
             </template>
@@ -21,7 +19,8 @@
           <template slot-scope="{row}">
             <HintButton title="修改" type="primary" size="mini" icon="el-icon-edit"
              @click="showUpdate(row)"></HintButton>
-              <el-popconfirm :title="`确定删除属性 ${row.attrName} 吗?`" @onConfirm="deleteAttr(row.id)">
+              <el-popconfirm :title="`确定删除 '${row.attrName}' 吗?`"
+               @onConfirm="deleteAttr(row.id)">
                 <HintButton slot="reference" title="删除" type="danger" icon="el-icon-delete" size="mini"></HintButton>
               </el-popconfirm>
           </template>
@@ -44,25 +43,25 @@
         <el-table border style="margin: 20px 0" :data="attr.attrValueList">
           <el-table-column label="序号"  type="index" width="80" align="center"></el-table-column>
           <el-table-column label="属性值名称">
-            <template slot-scope="{row}">
-              <el-input v-if="row.edit" v-model="row.valueName"
+            <template slot-scope="{row, $index}">
+              <el-input :ref="$index" v-if="row.edit" v-model="row.valueName"
               size="mini" placeholder="请输入属性值名称"
               @blur="toShow(row)"
               @keyup.enter.native="toShow(row)"></el-input>
-              <span v-else @click="toEdit(row)"
+              <span v-else @click="toEdit(row,$index)"
               style="display:inline-block;width:100%">{{row.valueName}}</span>
             </template>
           </el-table-column>
           <el-table-column label="操作">
-            <template slot-scope="{$index}">
-              <el-popconfirm :title="`确定删除属性值 ${row.valueName} 吗?`" @onConfirm="deleteValue($index)">
+            <template slot-scope="{row,$index}">
+              <el-popconfirm :title="`确定删除属性值 ${row.valueName} 吗?`" @onConfirm="attr.attrValueList.splice($index, 1)">
                 <HintButton slot="reference" title="删除" type="danger" icon="el-icon-delete" size="mini"></HintButton>
               </el-popconfirm>
             </template>
           </el-table-column>
         </el-table>
 
-        <el-button type="primary" @click="addUpdateAttr" :disabled="!isSaveValid">保存</el-button>
+        <el-button type="primary" @click="save" :disabled="!attr.attrName || attr.attrValueList.length===0">保存</el-button>
         <el-button @click="isShowList=true">取消</el-button>
       </div>
     </el-card>
@@ -85,35 +84,60 @@ export default {
         attrValueList:[],//属性值列表
         categoryId:'',
         categoryLevel:3,
-      },
+      }
     }
   },
-    computed: {
-    // 判断是否可以进行添加/更新属性
-    isSaveValid () {
-      // 1. 属性名有, 2. 属性值列表中至少有一个属性值名称有
-      return this.attr.attrName.trim() && this.attr.attrValueList.some(item => !!item.valueName.trim())
-    }
-  },
-
-  watch: {
-    isShowList (value) {
-      this.$refs.cs.isDisabled = !value
-    }
-  },
-
   mounted() {
-    this.getAttrs()
+    // this.getAttrs()
+  },
+  watch: {
+    isShowList(value){
+      this.$refs.cs.disabled = !value
+    }
   },
   methods: {
+    //删除指定属性
+    deleteAttr(id){
+      this.$API.attr.remove(id).then(result=>{
+        this.getAttrs()
+      }).catch(error=>{
+        this.$message.error('删除属性失败')
+      })
+    },
+    //保存属性
+    async save(){
+      const attr = this.attr
+      attr.attrValueList = attr.attrValueList.filter(value=>{
+        if(value.valueName !== ''){
+          delete value.edit
+          return true
+        }
+        // return value.valueName !== ''
+      })
+      if(attr.attrValueList.length===0){
+        this.$message.warning('至少指定一个属性值名称')
+        return
+      }
+      const result = await this.$API.attr.addOrUpdate(attr)
+      if(result.code===200){
+        this.$message.success('保存属性成功')
+        this.isShowList = true
+        this.getAttrs()
+      }else{
+        this.$message.error('保存属性失败')
+      }
+    },
     //将指定属性值对象界面变为编辑模式
-    toEdit(value){
+    toEdit(value,index){
       if(value.hasOwnProperty('edit')){
         value.edit = true
       }else{
         this.$set(value,'edit',true)
       }
-
+      //自动获取焦点
+      this.$nextTick(()=>{
+        this.$refs[index].focus()
+      })
     },
     //将指定属性值对象界面变为查看模式
     toShow(value){
@@ -151,17 +175,21 @@ export default {
     //添加属性值
     addAttrValue(){
       this.attr.attrValueList.push({
-        attrId:this.attr.id,
-        valueName:'',
-        edit:true,//添加的新属性值是编辑模式的
+        attrId: this.attr.id,
+        valueName: '',
+        edit: true,//添加的新属性值是编辑模式的
+      })
+      //让最后一个属性值得input自动获得焦点
+      this.$nextTick(()=>{
+        this.$refs[this.attr.attrValueList.length-1].focus()
       })
     },
-    //
+    //3个级别分类发生改变时的监听回调
     handleCategoryChange({categoryId,level}){
       if(level===1){
         this.category1Id = categoryId
-        this.category3Id = ''
         this.category2Id = ''
+        this.category3Id = ''
         this.attrs = []
       }else if(level===2){
         this.category2Id = categoryId
@@ -177,26 +205,6 @@ export default {
       const {category1Id,category2Id,category3Id} = this
       const result = await this.$API.attr.getList(category1Id,category2Id,category3Id)
       this.attrs = result.data
-    },
-    //
-    async addUpdateAttr () {
-      this.attr.attrValueList = this.attr.attrValueList.filter(value => {
-        // 删除edit属性
-        delete value.edit
-        // 只留下valueName有值的value
-        return !!value.valueName.trim()
-      })
-      // 发更新的请求
-      const result = await this.$API.attr.addUpdate(this.attr)
-      if (result.code===200) {
-        this.$message.success(`${this.attr.id ? '更新' : '添加'}属性成功`)
-        // 切换到属性列表
-        this.isShowList = true
-        // 重新获取新的属性列表
-        this.getList()
-      } else {
-        this.$message.error(`${this.attr.id ? '更新' : '添加'}属性失败`)
-      }
     },
   },
 }
